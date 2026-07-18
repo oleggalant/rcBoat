@@ -68,18 +68,18 @@ Two control layouts, switchable in the page (saved per-device):
 
 ### Failsafes
 
-- Boat cuts motors to idle if no control packet for 500 ms (`WATCHDOG_MS`).
-- Transmitter sends neutral if the phone disconnects or stops writing for
+- Boat cuts motors to idle if no control packet is recived for 500 ms (`WATCHDOG_MS`).
+- Transmitter sends neutral signals if the phone disconnects or stops writing for
   1 s (`BLE_WATCHDOG_MS`) — the page heartbeats every 250 ms.
 - Transmitter re-enters discovery if the boat is silent for 5 s.
 - ESCs are held at 1000 µs for 3 s at boot (arming), same as the original.
 
-## Safety notes (worth a read before the kids press go)
+## Safety notes (worth a read )
 
 - First runs: **props off**. Verify pairing, joystick response, and that
   killing the transmitter or closing the phone tab actually stops the boat.
 - Keep hands clear of props once they're on — arm the ESCs, then don't touch.
 - Test failsafes deliberately: turn off the transmitter, close the browser
   tab, walk out of BLE range — in every case the boat should stop.
-- Water testing: adult supervision, calm/shallow water first, and a plan for
+- Water testing: !carefully! calm/shallow water first, and a plan for
   retrieving the boat if the link ever does drop.
