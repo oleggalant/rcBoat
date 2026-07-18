@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<!--
+  Full-screen virtual controller for the rcBoat ESP-NOW transmitter.
+  Two control modes, toggled with the 2-HAND / 1-STICK button (persisted):
+    - single joystick: horizontal = turn, vertical = thrust
+    - two-handed: horizontal turn slider (left) + vertical thrust slider (right),
+      independent multitouch via per-element pointer capture
+  Connects to the "rcBoatTx" handheld over Web Bluetooth (Nordic UART Service)
+  and writes 4-byte packets: int16 x (yaw), int16 y (throttle), LE, ×1000.
+  Expo, yaw trim, throttle-hold and control mode are persisted in localStorage.
+  Requires HTTPS (Web Bluetooth secure-context rule) and Chrome on Android/desktop.
+  Resends current values every 250 ms — the transmitter neutralizes the boat
+  if writes stop for more than BLE_WATCHDOG_MS (hung tab failsafe).
+-->
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>rcBoat</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;
+       justify-content:center;height:100vh;overflow:hidden;touch-action:none;
+       font-family:sans-serif;color:#fff;user-select:none}
+  #status{display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:14px;letter-spacing:.5px}
+  #dot{width:12px;height:12px;border-radius:50%;background:#e74c3c;transition:background .3s}
+  #dot.ok{background:#2ecc71}
+  #signal{display:flex;align-items:flex-end;gap:2px;height:16px}
+  .bar{width:4px;border-radius:1px;background:#333;transition:background .4s}
+  .b1{height:25%}.b2{height:50%}.b3{height:75%}.b4{height:100%}
+  .bar.on{background:#2ecc71}
+  #rssiVal{font-size:11px;color:rgba(255,255,255,.5);min-width:52px}
+  canvas{display:block}
+  #dual{display:flex;width:100%;justify-content:space-between;align-items:center;padding:0 5vw}
+  #controls{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:14px;flex-wrap:wrap}
+  .cbtn{background:#0f3460;border:none;color:#fff;padding:7px 13px;border-radius:8px;
+        font-size:13px;cursor:pointer;touch-action:manipulation;transition:background .2s}
+  .cbtn:active,.cbtn.on{background:#e94560}
+  .cbtn:disabled{opacity:.45;cursor:default}
+  #trimVal{min-width:28px;text-align:center;font-size:13px;color:rgba(255,255,255,.65)}
+  #expoWrap{display:flex;align-items:center;gap:6px;font-size:13px;color:rgba(255,255,255,.65)}
+  input[type=range]{width:72px;accent-color:#e94560;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="status">
+  <div id="dot"></div>
+  <span id="msg">Not connected</span>
+  <button class="cbtn" id="btBtn">Connect</button>
+  <div id="signal"><div class="bar b1"></div><div class="bar b2"></div><div class="bar b3"></div><div class="bar b4"></div></div>
+  <span id="rssiVal"></span>
+</div>
+<canvas id="c"></canvas>
+<div id="dual">
+  <canvas id="trn"></canvas>
+  <canvas id="thr"></canvas>
+</div>
+<div id="controls">
+  <button class="cbtn" id="trimL">&#9664;</button>
+  <span id="trimVal">0</span>
+  <button class="cbtn" id="trimR">&#9654;</button>
+  <button class="cbtn" id="holdBtn">HOLD</button>
+  <div id="expoWrap">EXPO <input type="range" id="expoSlider" min="0" max="100" value="50"></div>
+  <button class="cbtn" id="modeBtn">2-HAND</button>
+</div>
+<script>
+const canvas     = document.getElementById('c');
+const ctx        = canvas.getContext('2d');
+const thrCv      = document.getElementById('thr');
+const thrCtx     = thrCv.getContext('2d');
+const trnCv      = document.getElementById('trn');
+const trnCtx     = trnCv.getContext('2d');
+const dualWrap   = document.getElementById('dual');
+const dot        = document.getElementById('dot');
+const msg        = document.getElementById('msg');
+const btBtn      = document.getElementById('btBtn');
+const trimValEl  = document.getElementById('trimVal');
+const holdBtn    = document.getElementById('holdBtn');
+const expoSlider = document.getElementById('expoSlider');
+const modeBtn    = document.getElementById('modeBtn');
+
+const SZ  = Math.min(window.innerWidth, window.innerHeight) * 0.72;
+canvas.width  = SZ;
+canvas.height = SZ;
+const R   = SZ / 2;
+const SR  = SZ / 9;
+const MAX = R - SR - 4;
+
+// Two-handed mode geometry: tall thrust strip + wide turn strip
+const STRIP = Math.round(SZ * 0.30);
+thrCv.width  = STRIP;  thrCv.height = SZ;
+trnCv.width  = SZ;     trnCv.height = STRIP;
+const KNOB     = Math.round(STRIP * 0.42);   // knob radius for both strips
+const THR_TRK  = SZ / 2 - KNOB - 4;          // half-length of thrust track
+const TRN_TRK  = SZ / 2 - KNOB - 4;          // half-length of turn track
+
+// Normalized control state, pre-expo/pre-trim: ctrlX = turn, ctrlY = thrust
+let ctrlX = 0, ctrlY = 0;
+let sx = 0, sy = 0, dragging = false;        // single-stick, pixels
+let thrDrag = false, trnDrag = false;        // two-handed drag state
+
+// ── Persisted settings ────────────────────────────────────────────────────
+let trimSteps    = parseInt(localStorage.getItem('trim') ?? '0');
+let throttleHold = localStorage.getItem('hold') === '1';
+let expoAmt      = parseFloat(localStorage.getItem('expo') ?? '0.5');
+let twoHand      = localStorage.getItem('mode') === '2';
+
+trimValEl.textContent = (trimSteps > 0 ? '+' : '') + trimSteps;
+holdBtn.classList.toggle('on', throttleHold);
+expoSlider.value = Math.round(expoAmt * 100);
+
+document.getElementById('trimL').addEventListener('click', () => {
+  trimSteps = Math.max(-10, trimSteps - 1);
+  trimValEl.textContent = (trimSteps > 0 ? '+' : '') + trimSteps;
+  localStorage.setItem('trim', trimSteps);
+  send();
+});
+document.getElementById('trimR').addEventListener('click', () => {
+  trimSteps = Math.min(10, trimSteps + 1);
+  trimValEl.textContent = (trimSteps > 0 ? '+' : '') + trimSteps;
+  localStorage.setItem('trim', trimSteps);
+  send();
+});
+holdBtn.addEventListener('click', () => {
+  throttleHold = !throttleHold;
+  holdBtn.classList.toggle('on', throttleHold);
+  if (!throttleHold) { sy = 0; ctrlY = 0; drawAll(); send(); }
+  localStorage.setItem('hold', throttleHold ? '1' : '0');
+});
+expoSlider.addEventListener('input', () => {
+  expoAmt = expoSlider.value / 100;
+  localStorage.setItem('expo', expoAmt);
+  send();
+});
+
+// ── Control mode toggle ───────────────────────────────────────────────────
+function applyMode() {
+  canvas.style.display   = twoHand ? 'none' : 'block';
+  dualWrap.style.display = twoHand ? 'flex' : 'none';
+  modeBtn.textContent    = twoHand ? '1-STICK' : '2-HAND';
+  // neutralize everything on switch
+  sx = 0; sy = 0; dragging = false;
+  thrDrag = false; trnDrag = false;
+  ctrlX = 0; ctrlY = 0;
+  drawAll();
+  send();
+}
+modeBtn.addEventListener('click', () => {
+  twoHand = !twoHand;
+  localStorage.setItem('mode', twoHand ? '2' : '1');
+  applyMode();
+});
+
+// expo(v) = v*(1-e) + v³*e  — identity at e=0, cubic at e=1
+function applyExpo(v) {
+  return v * (1 - expoAmt) + v * v * v * expoAmt;
+}
+
+// ── RSSI ──────────────────────────────────────────────────────────────────
+const bars    = document.querySelectorAll('.bar');
+const rssiVal = document.getElementById('rssiVal');
+
+function updateRssi(rssi) {
+  const level = rssi < -70 ? 1 : rssi < -60 ? 2 : rssi < -50 ? 3 : rssi < 0 ? 4 : 0;
+  bars.forEach((b, i) => b.classList.toggle('on', i < level));
+  rssiVal.textContent = rssi < 0 ? rssi + ' dBm' : '';
+}
+
+// ── Web Bluetooth (Nordic UART Service on "rcBoatTx") ─────────────────────
+const NUS_SVC = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_RX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+let device = null, rxChar = null, pending = null, writing = false;
+
+btBtn.addEventListener('click', async () => {   // requestDevice needs a user gesture
+  if (!navigator.bluetooth) {
+    msg.textContent = 'No Web Bluetooth — use Chrome over HTTPS';
+    return;
+  }
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{namePrefix: 'rcBoatTx'}],
+      optionalServices: [NUS_SVC]
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    await setupGatt();
+  } catch (e) {
+    msg.textContent = 'Not connected';
+  }
+});
+
+async function setupGatt() {
+  msg.textContent = 'Connecting…';
+  const server = await device.gatt.connect();
+  const svc    = await server.getPrimaryService(NUS_SVC);
+  rxChar       = await svc.getCharacteristic(NUS_RX);
+  const txChar = await svc.getCharacteristic(NUS_TX);
+  await txChar.startNotifications();
+  txChar.addEventListener('characteristicvaluechanged', (e) => {
+    try {
+      const d = JSON.parse(new TextDecoder().decode(e.target.value));
+      if (d.rssi !== undefined) updateRssi(d.rssi);
+    } catch {}
+  });
+  dot.className = 'ok';
+  msg.textContent = 'Connected';
+  btBtn.disabled = true;
+  send();
+}
+
+function onDisconnected() {
+  dot.className = '';
+  rxChar = null;
+  btBtn.disabled = false;
+  updateRssi(0);
+  msg.textContent = 'Reconnecting…';
+  setTimeout(reconnect, 1000);
+}
+async function reconnect() {          // gatt.connect() needs no new gesture
+  if (!device || rxChar) return;
+  try { await setupGatt(); }
+  catch { setTimeout(reconnect, 2000); }
+}
+
+function send() {
+  const v = new DataView(new ArrayBuffer(4));
+  v.setInt16(0, Math.round((applyExpo(ctrlX) + trimSteps * 0.02) * 1000), true);
+  v.setInt16(2, Math.round(applyExpo(ctrlY) * 1000), true);
+  pending = v.buffer;
+  pump();
+}
+async function pump() {   // one write in flight, coalesce the rest (~conn interval rate)
+  if (writing || !pending || !rxChar) return;
+  writing = true;
+  const buf = pending;
+  pending = null;
+  try { await rxChar.writeValueWithoutResponse(buf); } catch {}
+  writing = false;
+  if (pending) pump();
+}
+
+// Heartbeat: keep the transmitter's BLE watchdog fed while the stick is steady
+setInterval(() => { if (rxChar) send(); }, 250);
+
+// ── Drawing ───────────────────────────────────────────────────────────────
+function drawAll() { twoHand ? (drawThr(), drawTrn()) : drawJoy(); }
+
+function drawJoy() {
+  ctx.clearRect(0, 0, SZ, SZ);
+
+  // outer ring
+  ctx.beginPath();
+  ctx.arc(R, R, R - 3, 0, Math.PI * 2);
+  ctx.strokeStyle = '#0f3460';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  // crosshair
+  ctx.strokeStyle = '#0f3460';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(R, 6);    ctx.lineTo(R, SZ - 6);
+  ctx.moveTo(6, R);    ctx.lineTo(SZ - 6, R);
+  ctx.stroke();
+
+  // stick knob
+  ctx.beginPath();
+  ctx.arc(R + sx, R + sy, SR, 0, Math.PI * 2);
+  ctx.fillStyle = dragging ? '#c0392b' : throttleHold ? '#e67e22' : '#e94560';
+  ctx.fill();
+
+  // throttle label (shows ⏸ when hold is active and stick is released)
+  const pct = Math.round(Math.max(0, ctrlY) * 100);
+  ctx.fillStyle = 'rgba(255,255,255,.55)';
+  ctx.font = `bold ${SZ * 0.07}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText((throttleHold && !dragging && pct > 0 ? '⏸ ' : '') + pct + '%', R, SZ - 10);
+}
+
+function drawStripTrack(c, x1, y1, x2, y2) {
+  c.strokeStyle = '#0f3460';
+  c.lineWidth = 3;
+  c.beginPath();
+  c.moveTo(x1, y1);
+  c.lineTo(x2, y2);
+  c.stroke();
+}
+
+function drawThr() {                  // vertical: bottom = 0, top = 100%
+  const cx = STRIP / 2;
+  thrCtx.clearRect(0, 0, STRIP, SZ);
+  drawStripTrack(thrCtx, cx, SZ / 2 - THR_TRK, cx, SZ / 2 + THR_TRK);
+  // tick at zero (bottom)
+  thrCtx.beginPath();
+  thrCtx.moveTo(cx - KNOB * 0.6, SZ / 2 + THR_TRK);
+  thrCtx.lineTo(cx + KNOB * 0.6, SZ / 2 + THR_TRK);
+  thrCtx.stroke();
+  const ky = SZ / 2 + THR_TRK - ctrlY * 2 * THR_TRK;
+  thrCtx.beginPath();
+  thrCtx.arc(cx, ky, KNOB, 0, Math.PI * 2);
+  thrCtx.fillStyle = thrDrag ? '#c0392b' : throttleHold ? '#e67e22' : '#e94560';
+  thrCtx.fill();
+  const pct = Math.round(ctrlY * 100);
+  thrCtx.fillStyle = 'rgba(255,255,255,.55)';
+  thrCtx.font = `bold ${STRIP * 0.28}px sans-serif`;
+  thrCtx.textAlign = 'center';
+  thrCtx.fillText((throttleHold && !thrDrag && pct > 0 ? '⏸' : '') + pct + '%', cx, SZ - 8);
+}
+
+function drawTrn() {                  // horizontal: center = straight ahead
+  const cy = STRIP / 2;
+  trnCtx.clearRect(0, 0, SZ, STRIP);
+  drawStripTrack(trnCtx, SZ / 2 - TRN_TRK, cy, SZ / 2 + TRN_TRK, cy);
+  // tick at center
+  trnCtx.beginPath();
+  trnCtx.moveTo(SZ / 2, cy - KNOB * 0.6);
+  trnCtx.lineTo(SZ / 2, cy + KNOB * 0.6);
+  trnCtx.stroke();
+  const kx = SZ / 2 + ctrlX * TRN_TRK;
+  trnCtx.beginPath();
+  trnCtx.arc(kx, cy, KNOB, 0, Math.PI * 2);
+  trnCtx.fillStyle = trnDrag ? '#c0392b' : '#e94560';
+  trnCtx.fill();
+}
+
+// ── Input: single joystick ────────────────────────────────────────────────
+function clampStick(dx, dy) {
+  const d = Math.sqrt(dx*dx + dy*dy);
+  if (d > MAX) { dx = dx/d*MAX; dy = dy/d*MAX; }
+  sx = dx; sy = dy;
+  ctrlX = sx / MAX;
+  ctrlY = -sy / MAX;                  // up = positive (forward)
+}
+
+function pointerPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const src  = e.touches ? e.touches[0] : e;
+  return [src.clientX - rect.left - R, src.clientY - rect.top - R];
+}
+
+function onStart(e) { e.preventDefault(); dragging = true;  const [dx,dy]=pointerPos(e); clampStick(dx,dy); drawJoy(); send(); }
+function onMove(e)  { e.preventDefault(); if(!dragging) return; const [dx,dy]=pointerPos(e); clampStick(dx,dy); drawJoy(); send(); }
+function onEnd(e) {
+  e.preventDefault();
+  dragging = false;
+  sx = 0; ctrlX = 0;
+  if (!throttleHold) { sy = 0; ctrlY = 0; }  // hold mode keeps thrust
+  drawJoy(); send();
+}
+
+canvas.addEventListener('mousedown',  onStart);
+canvas.addEventListener('mousemove',  onMove);
+canvas.addEventListener('mouseup',    onEnd);
+canvas.addEventListener('mouseleave', onEnd);
+canvas.addEventListener('touchstart', onStart, {passive:false});
+canvas.addEventListener('touchmove',  onMove,  {passive:false});
+canvas.addEventListener('touchend',   onEnd,   {passive:false});
+
+// ── Input: two-handed sliders ─────────────────────────────────────────────
+// Pointer events + per-element capture: each strip tracks its own pointerId,
+// so both thumbs work simultaneously.
+function attachStrip(cv, onValue, onRelease) {
+  let pid = null;
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    pid = e.pointerId;
+    cv.setPointerCapture(pid);
+    onValue(e, true);
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (e.pointerId === pid) onValue(e, true);
+  });
+  const end = (e) => {
+    if (e.pointerId !== pid) return;
+    pid = null;
+    onRelease();
+  };
+  cv.addEventListener('pointerup', end);
+  cv.addEventListener('pointercancel', end);
+}
+
+attachStrip(thrCv,
+  (e) => {
+    const rect = thrCv.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    ctrlY = Math.min(1, Math.max(0, (SZ / 2 + THR_TRK - y) / (2 * THR_TRK)));
+    thrDrag = true;
+    drawThr(); send();
+  },
+  () => {
+    thrDrag = false;
+    if (!throttleHold) ctrlY = 0;     // hold mode keeps thrust
+    drawThr(); send();
+  });
+
+attachStrip(trnCv,
+  (e) => {
+    const rect = trnCv.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    ctrlX = Math.min(1, Math.max(-1, (x - SZ / 2) / TRN_TRK));
+    trnDrag = true;
+    drawTrn(); send();
+  },
+  () => {
+    trnDrag = false;
+    ctrlX = 0;                        // turn always springs back to center
+    drawTrn(); send();
+  });
+
+applyMode();
+</script>
+</body>
+</html>
