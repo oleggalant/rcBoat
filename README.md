@@ -1,4 +1,4 @@
-# rcBoat — a 3D-printed RC boat, built with your kids
+# rcBoat — a 3D-printed RC boat, build it yourself
 
 A weekend (or two) DIY project: a long-range radio-controlled boat with a
 3D-printed hull and **four empty cola bottles** as floats. build it yourself! it only takes one weekend on the hull and floats, one
