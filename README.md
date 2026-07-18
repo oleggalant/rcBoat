@@ -56,9 +56,9 @@ open on the water.
 
 Two control layouts, switchable in the page (saved per-device):
 - **1-stick**: single joystick, horizontal = turn, vertical = thrust
+- good for fishing if phone held in one hand,fishing rod in other
 - **2-hand**: landscape, turn slider on the left, thrust slider on the right
-  — good for letting one kid drive while sharing the phone, or for small
-  hands that find a diagonal joystick harder to hold steady
+  — good for racing/casual sailing and water watching(needs an external camera)
 
 ### Radio settings (`include/config.h`)
 
