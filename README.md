@@ -12,7 +12,7 @@ Phone (Chrome, Web Bluetooth joystick) → BLE → transmitter ESP32-C3
 
 ## What you need
 
-- A 3D printer (STL files: see [`hull/`](hull/) — coming soon)
+- A 3D printer (STL files: see [`stls/`](stls/))
 - 4 empty 1.5–2 L cola bottles, rinsed out, labels off, caps on
 - 2x ESP32-C3-DevKitM-1 boards (one for the boat, one for the handheld
   transmitter) — the transmitter board should have an external antenna
@@ -24,12 +24,13 @@ Phone (Chrome, Web Bluetooth joystick) → BLE → transmitter ESP32-C3
 ## Weekend 1 — hull & floats
 
 Print the hull parts, mount the bottles as floats, fit the motor/ESC
-mounts. STL files and build photos go here once ready:
+mounts:
 
-- [`hull/`](hull/) — STL / 3MF files for the printed parts
+- [`stls/`](stls/) — STL files for the printed parts (motor mount, bottle
+  T-connector, turnbuckle)
 - [`photos/`](photos/) — build photos and reference pictures
 
-*(Placeholder — files to follow.)*
+*(Photos to follow.)*
 
 ## Weekend 2 — electronics & first drive
 
