@@ -32,7 +32,7 @@ void loop() {
     } else if (now - espnowLinkLastRxMs() > LINK_TIMEOUT_MS) {
         Serial.println("Link: boat silent, re-discovering");
         espnowLinkResetPairing();
-        bleUartNotifyTelemetry(0, -1, CAL_STATE_IDLE, 0);   // phone bars go dark
+        bleUartNotifyTelemetry(0, -1, CAL_STATE_IDLE, 0, 0, 0);   // phone bars go dark
     }
 
     // Control values with BLE failsafe
@@ -56,11 +56,11 @@ void loop() {
     // Forward boat telemetry to the phone
     int8_t rssi;
     uint8_t lossPct, calState, calPct;
-    int16_t heading;
-    if (espnowLinkGetTelemetry(rssi, lossPct, heading, calState, calPct)) {
-        bleUartNotifyTelemetry(rssi, heading, calState, calPct);
-        Serial.printf("Telemetry: boat rssi %d dBm, loss %u%%, heading %d, cal %u/%u%%\n",
-                      rssi, lossPct, heading, calState, calPct);
+    int16_t heading, rawX, rawY;
+    if (espnowLinkGetTelemetry(rssi, lossPct, heading, calState, calPct, rawX, rawY)) {
+        bleUartNotifyTelemetry(rssi, heading, calState, calPct, rawX, rawY);
+        Serial.printf("Telemetry: boat rssi %d dBm, loss %u%%, heading %d, cal %u/%u%%, raw %d,%d\n",
+                      rssi, lossPct, heading, calState, calPct, rawX, rawY);
     }
 
     // Settings/calibration commands from the phone (one-shot, sent immediately

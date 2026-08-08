@@ -13,6 +13,11 @@ void compassUpdate();   // call every loop(); internally rate-limited
 bool compassHeadingValid();   // false until a calibration has been saved
 int  compassHeadingDeg();     // 0-359, or -1 if invalid
 
+// Last raw X/Y magnetometer counts (calibration-adjusted once calibrated,
+// otherwise the true raw reading). Useful as a wiring/bench-test trace: if
+// these never change, the I2C bus isn't actually being read.
+void compassRawXY(int16_t& x, int16_t& y);
+
 void compassCalStart();
 bool compassCalStop(bool save);   // true if this call resulted in a fresh save
 bool compassCalActive();

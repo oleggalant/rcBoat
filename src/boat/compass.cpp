@@ -14,6 +14,7 @@ static bool g_calibrated = false;
 
 static uint32_t g_lastReadMs = 0;
 static float g_headingSmoothed = -1;   // -1 = no reading yet
+static int16_t g_rawX = 0, g_rawY = 0;
 
 static bool g_calActive = false;
 static int g_calMinX, g_calMaxX, g_calMinY, g_calMaxY;
@@ -86,6 +87,8 @@ void compassUpdate() {
 
     g_compass.read();
     int x = g_compass.getX(), y = g_compass.getY();
+    g_rawX = (int16_t)x;
+    g_rawY = (int16_t)y;
 
     if (g_calActive) {
         g_calMinX = min(g_calMinX, x); g_calMaxX = max(g_calMaxX, x);
@@ -116,6 +119,11 @@ bool compassHeadingValid() { return g_calibrated && g_headingSmoothed >= 0; }
 
 int compassHeadingDeg() {
     return compassHeadingValid() ? (int)g_headingSmoothed : -1;
+}
+
+void compassRawXY(int16_t& x, int16_t& y) {
+    x = g_rawX;
+    y = g_rawY;
 }
 
 void compassCalStart() {

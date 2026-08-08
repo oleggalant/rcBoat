@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<!--
+  Standalone diagnostic page for the rcBoat ESP-NOW transmitter/boat.
+  Connects to "rcBoatTx" over the same Web Bluetooth link as joystick.html
+  and shows every telemetry notification the boat sends, both as a live
+  readout (RSSI, heading, calibration state, raw compass X/Y) and as a
+  timestamped scrolling log — useful for bench/wiring debugging without a
+  USB cable on the boat (e.g. is the compass being read at all? do rawX/rawY
+  ever change, or are they stuck at a fixed value?).
+  Requires HTTPS (Web Bluetooth secure-context rule) and Chrome.
+-->
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>rcBoat trace</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#1a1a2e;color:#fff;font-family:sans-serif;min-height:100vh;
+       display:flex;flex-direction:column;align-items:center;padding:16px}
+  h1{font-size:16px;margin-bottom:14px}
+  #status{display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:14px}
+  #dot{width:12px;height:12px;border-radius:50%;background:#e74c3c}
+  #dot.ok{background:#2ecc71}
+  .cbtn{background:#0f3460;border:none;color:#fff;padding:7px 13px;border-radius:8px;
+        font-size:13px;cursor:pointer}
+  .cbtn:active{background:#e94560}
+  .cbtn:disabled{opacity:.45;cursor:default}
+  #readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));
+            gap:10px;width:100%;max-width:640px;margin-bottom:16px}
+  .stat{background:#16213e;border-radius:10px;padding:10px;text-align:center}
+  .stat .lbl{font-size:11px;color:rgba(255,255,255,.55);margin-bottom:4px}
+  .stat .val{font-size:18px;font-family:monospace}
+  #log{width:100%;max-width:640px;flex:1;background:#0f172a;border-radius:10px;
+       padding:10px;overflow-y:auto;font-family:monospace;font-size:12px;
+       line-height:1.5;white-space:pre-wrap;max-height:50vh}
+  #log .line{color:rgba(255,255,255,.8)}
+  #log .t{color:rgba(255,255,255,.4)}
+</style>
+</head>
+<body>
+<h1>rcBoat trace</h1>
+<div id="status">
+  <div id="dot"></div>
+  <span id="msg">Not connected</span>
+  <button class="cbtn" id="btBtn">Connect</button>
+  <button class="cbtn" id="clearBtn">Clear log</button>
+</div>
+
+<div id="readout">
+  <div class="stat"><div class="lbl">RSSI</div><div class="val" id="vRssi">—</div></div>
+  <div class="stat"><div class="lbl">Heading</div><div class="val" id="vHeading">—</div></div>
+  <div class="stat"><div class="lbl">Cal state</div><div class="val" id="vCal">—</div></div>
+  <div class="stat"><div class="lbl">Cal %</div><div class="val" id="vCalPct">—</div></div>
+  <div class="stat"><div class="lbl">raw X</div><div class="val" id="vRawX">—</div></div>
+  <div class="stat"><div class="lbl">raw Y</div><div class="val" id="vRawY">—</div></div>
+  <div class="stat"><div class="lbl">Updates/min</div><div class="val" id="vRate">—</div></div>
+  <div class="stat"><div class="lbl">Last update</div><div class="val" id="vAge">—</div></div>
+</div>
+
+<div id="log"></div>
+
+<script>
+const dot      = document.getElementById('dot');
+const msg      = document.getElementById('msg');
+const btBtn    = document.getElementById('btBtn');
+const clearBtn = document.getElementById('clearBtn');
+const logEl    = document.getElementById('log');
+
+const vRssi    = document.getElementById('vRssi');
+const vHeading = document.getElementById('vHeading');
+const vCal     = document.getElementById('vCal');
+const vCalPct  = document.getElementById('vCalPct');
+const vRawX    = document.getElementById('vRawX');
+const vRawY    = document.getElementById('vRawY');
+const vRate    = document.getElementById('vRate');
+const vAge     = document.getElementById('vAge');
+
+const NUS_SVC = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+let device = null;
+let lastUpdateMs = 0;
+let updateTimes = [];   // recent notification timestamps, for a rolling rate
+
+const CAL_STATES = {0: 'idle', 1: 'calibrating', 2: 'saved'};
+
+btBtn.addEventListener('click', async () => {
+  if (!navigator.bluetooth) {
+    msg.textContent = 'No Web Bluetooth — use Chrome over HTTPS';
+    return;
+  }
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{namePrefix: 'rcBoatTx'}],
+      optionalServices: [NUS_SVC]
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    await setupGatt();
+  } catch (e) {
+    msg.textContent = 'Not connected';
+  }
+});
+
+async function setupGatt() {
+  msg.textContent = 'Connecting…';
+  const server = await device.gatt.connect();
+  const svc    = await server.getPrimaryService(NUS_SVC);
+  const txChar = await svc.getCharacteristic(NUS_TX);
+  await txChar.startNotifications();
+  txChar.addEventListener('characteristicvaluechanged', (e) => {
+    const raw = new TextDecoder().decode(e.target.value);
+    logLine(raw);
+    try { applyTelemetry(JSON.parse(raw)); } catch {}
+  });
+  dot.className = 'ok';
+  msg.textContent = 'Connected';
+  btBtn.disabled = true;
+}
+
+function onDisconnected() {
+  dot.className = '';
+  btBtn.disabled = false;
+  msg.textContent = 'Reconnecting…';
+  setTimeout(reconnect, 1000);
+}
+async function reconnect() {
+  if (!device) return;
+  try { await setupGatt(); }
+  catch { setTimeout(reconnect, 2000); }
+}
+
+function applyTelemetry(d) {
+  const now = Date.now();
+  lastUpdateMs = now;
+  updateTimes.push(now);
+  updateTimes = updateTimes.filter(t => now - t < 60000);
+  vRate.textContent = updateTimes.length;
+
+  if (d.rssi !== undefined) vRssi.textContent = d.rssi + ' dBm';
+  if (d.heading !== undefined) vHeading.textContent = d.heading < 0 ? 'n/a' : d.heading + '°';
+  if (d.cal !== undefined) vCal.textContent = CAL_STATES[d.cal] ?? d.cal;
+  if (d.calPct !== undefined) vCalPct.textContent = d.calPct + '%';
+  if (d.rawX !== undefined) vRawX.textContent = d.rawX;
+  if (d.rawY !== undefined) vRawY.textContent = d.rawY;
+}
+
+setInterval(() => {
+  if (!lastUpdateMs) return;
+  vAge.textContent = Math.round((Date.now() - lastUpdateMs) / 1000) + 's ago';
+}, 500);
+
+function logLine(text) {
+  const t = new Date().toLocaleTimeString();
+  const div = document.createElement('div');
+  div.className = 'line';
+  div.textContent = `[${t}] ${text}`;
+  logEl.appendChild(div);
+  while (logEl.children.length > 300) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+clearBtn.addEventListener('click', () => { logEl.innerHTML = ''; });
+</script>
+</body>
+</html>

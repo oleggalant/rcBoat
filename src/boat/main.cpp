@@ -115,8 +115,10 @@ void loop() {
         uint8_t calState = CAL_STATE_IDLE;
         if (compassCalActive()) calState = CAL_STATE_CALIBRATING;
         else if (now < g_calJustSavedUntil) calState = CAL_STATE_SAVED;
+        int16_t rawX, rawY;
+        compassRawXY(rawX, rawY);
         espnowLinkSendTelemetry(espnowLinkLastRxRssi(), espnowLinkTakeLossPct(),
                                  (int16_t)compassHeadingDeg(), calState,
-                                 compassCalCoveragePct());
+                                 compassCalCoveragePct(), rawX, rawY);
     }
 }

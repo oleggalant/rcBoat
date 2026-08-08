@@ -35,6 +35,7 @@ static volatile uint8_t g_telemLoss = 0;
 static volatile int16_t g_telemHeading = -1;
 static volatile uint8_t g_telemCalState = 0;
 static volatile uint8_t g_telemCalPct = 0;
+static volatile int16_t g_telemRawX = 0, g_telemRawY = 0;
 static volatile bool g_telemDirty = false;
 
 // Boat: latest settings / calibration command from TX
@@ -90,6 +91,8 @@ static void handlePacket(const uint8_t* mac, const uint8_t* data, int len) {
             g_telemHeading = p->headingDeg;
             g_telemCalState = p->calState;
             g_telemCalPct = p->calCoveragePct;
+            g_telemRawX = p->rawX;
+            g_telemRawY = p->rawY;
             g_telemDirty = true;
             g_lastRxMs = millis();
             break;
@@ -177,7 +180,8 @@ bool espnowLinkSendControl(int16_t x, int16_t y) {
 }
 
 bool espnowLinkSendTelemetry(int8_t rssi, uint8_t lossPct, int16_t headingDeg,
-                              uint8_t calState, uint8_t calCoveragePct) {
+                              uint8_t calState, uint8_t calCoveragePct,
+                              int16_t rawX, int16_t rawY) {
     if (!g_paired) return false;
     TelemetryPacket p;
     fillHeader(&p.hdr, PKT_TELEMETRY);
@@ -186,6 +190,8 @@ bool espnowLinkSendTelemetry(int8_t rssi, uint8_t lossPct, int16_t headingDeg,
     p.headingDeg = headingDeg;
     p.calState = calState;
     p.calCoveragePct = calCoveragePct;
+    p.rawX = rawX;
+    p.rawY = rawY;
     return sendPacket(g_peerMac, &p, sizeof(p));
 }
 
@@ -261,12 +267,15 @@ bool espnowLinkGetControl(int16_t& x, int16_t& y) {
 uint32_t espnowLinkLastControlMs() { return g_lastControlMs; }
 
 bool espnowLinkGetTelemetry(int8_t& rssi, uint8_t& lossPct, int16_t& headingDeg,
-                             uint8_t& calState, uint8_t& calCoveragePct) {
+                             uint8_t& calState, uint8_t& calCoveragePct,
+                             int16_t& rawX, int16_t& rawY) {
     rssi = g_telemRssi;
     lossPct = g_telemLoss;
     headingDeg = g_telemHeading;
     calState = g_telemCalState;
     calCoveragePct = g_telemCalPct;
+    rawX = g_telemRawX;
+    rawY = g_telemRawY;
     bool fresh = g_telemDirty;
     g_telemDirty = false;
     return fresh;
