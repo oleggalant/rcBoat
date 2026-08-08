@@ -32,7 +32,17 @@ static volatile int8_t g_lastRxRssi = 0;
 // TX: latest telemetry values
 static volatile int8_t g_telemRssi = 0;
 static volatile uint8_t g_telemLoss = 0;
+static volatile int16_t g_telemHeading = -1;
+static volatile uint8_t g_telemCalState = 0;
+static volatile uint8_t g_telemCalPct = 0;
 static volatile bool g_telemDirty = false;
+
+// Boat: latest settings / calibration command from TX
+static volatile uint16_t g_setMinRunUs = 0;
+static volatile uint8_t g_setHeadingHold = 0;
+static volatile bool g_settingsDirty = false;
+static volatile uint8_t g_calCmd = 0;
+static volatile bool g_calCmdDirty = false;
 
 static uint8_t g_txSeq = 0;
 
@@ -77,6 +87,9 @@ static void handlePacket(const uint8_t* mac, const uint8_t* data, int len) {
             const TelemetryPacket* p = (const TelemetryPacket*)data;
             g_telemRssi = p->rssi;
             g_telemLoss = p->lossPct;
+            g_telemHeading = p->headingDeg;
+            g_telemCalState = p->calState;
+            g_telemCalPct = p->calCoveragePct;
             g_telemDirty = true;
             g_lastRxMs = millis();
             break;
@@ -90,6 +103,25 @@ static void handlePacket(const uint8_t* mac, const uint8_t* data, int len) {
             requestPair(mac);
             g_lastRxMs = millis();
             break;
+        case PKT_SETTINGS: {
+            if (!g_isBoat || len != sizeof(SettingsPacket)) return;
+            if (!g_paired || !macEquals(mac, g_peerMac)) return;
+            const SettingsPacket* p = (const SettingsPacket*)data;
+            g_setMinRunUs = p->minRunUs;
+            g_setHeadingHold = p->headingHoldEnabled;
+            g_settingsDirty = true;
+            g_lastRxMs = millis();
+            break;
+        }
+        case PKT_CAL_CMD: {
+            if (!g_isBoat || len != sizeof(CalCommandPacket)) return;
+            if (!g_paired || !macEquals(mac, g_peerMac)) return;
+            const CalCommandPacket* p = (const CalCommandPacket*)data;
+            g_calCmd = p->cmd;
+            g_calCmdDirty = true;
+            g_lastRxMs = millis();
+            break;
+        }
     }
 }
 
@@ -144,12 +176,33 @@ bool espnowLinkSendControl(int16_t x, int16_t y) {
     return sendPacket(g_peerMac, &p, sizeof(p));
 }
 
-bool espnowLinkSendTelemetry(int8_t rssi, uint8_t lossPct) {
+bool espnowLinkSendTelemetry(int8_t rssi, uint8_t lossPct, int16_t headingDeg,
+                              uint8_t calState, uint8_t calCoveragePct) {
     if (!g_paired) return false;
     TelemetryPacket p;
     fillHeader(&p.hdr, PKT_TELEMETRY);
     p.rssi = rssi;
     p.lossPct = lossPct;
+    p.headingDeg = headingDeg;
+    p.calState = calState;
+    p.calCoveragePct = calCoveragePct;
+    return sendPacket(g_peerMac, &p, sizeof(p));
+}
+
+bool espnowLinkSendSettings(uint16_t minRunUs, bool headingHoldEnabled) {
+    if (!g_paired) return false;
+    SettingsPacket p;
+    fillHeader(&p.hdr, PKT_SETTINGS);
+    p.minRunUs = minRunUs;
+    p.headingHoldEnabled = headingHoldEnabled ? 1 : 0;
+    return sendPacket(g_peerMac, &p, sizeof(p));
+}
+
+bool espnowLinkSendCalCommand(uint8_t cmd) {
+    if (!g_paired) return false;
+    CalCommandPacket p;
+    fillHeader(&p.hdr, PKT_CAL_CMD);
+    p.cmd = cmd;
     return sendPacket(g_peerMac, &p, sizeof(p));
 }
 
@@ -207,9 +260,13 @@ bool espnowLinkGetControl(int16_t& x, int16_t& y) {
 
 uint32_t espnowLinkLastControlMs() { return g_lastControlMs; }
 
-bool espnowLinkGetTelemetry(int8_t& rssi, uint8_t& lossPct) {
+bool espnowLinkGetTelemetry(int8_t& rssi, uint8_t& lossPct, int16_t& headingDeg,
+                             uint8_t& calState, uint8_t& calCoveragePct) {
     rssi = g_telemRssi;
     lossPct = g_telemLoss;
+    headingDeg = g_telemHeading;
+    calState = g_telemCalState;
+    calCoveragePct = g_telemCalPct;
     bool fresh = g_telemDirty;
     g_telemDirty = false;
     return fresh;
@@ -223,6 +280,21 @@ uint8_t espnowLinkTakeLossPct() {
     g_ctrlLost = 0;
     uint16_t total = recv + lost;
     return total ? (uint8_t)((lost * 100) / total) : 0;
+}
+
+bool espnowLinkGetSettings(uint16_t& minRunUs, bool& headingHoldEnabled) {
+    minRunUs = g_setMinRunUs;
+    headingHoldEnabled = g_setHeadingHold != 0;
+    bool fresh = g_settingsDirty;
+    g_settingsDirty = false;
+    return fresh;
+}
+
+bool espnowLinkGetCalCommand(uint8_t& cmd) {
+    cmd = g_calCmd;
+    bool fresh = g_calCmdDirty;
+    g_calCmdDirty = false;
+    return fresh;
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@
 #include <Arduino.h>
 #include "config.h"
 #include "common/espnow_link.h"
+#include "protocol.h"
 #include "ble_uart.h"
 
 void setup() {
@@ -31,7 +32,7 @@ void loop() {
     } else if (now - espnowLinkLastRxMs() > LINK_TIMEOUT_MS) {
         Serial.println("Link: boat silent, re-discovering");
         espnowLinkResetPairing();
-        bleUartNotifyRssi(0);   // phone bars go dark
+        bleUartNotifyTelemetry(0, -1, CAL_STATE_IDLE, 0);   // phone bars go dark
     }
 
     // Control values with BLE failsafe
@@ -54,9 +55,22 @@ void loop() {
 
     // Forward boat telemetry to the phone
     int8_t rssi;
-    uint8_t lossPct;
-    if (espnowLinkGetTelemetry(rssi, lossPct)) {
-        bleUartNotifyRssi(rssi);
-        Serial.printf("Telemetry: boat rssi %d dBm, loss %u%%\n", rssi, lossPct);
+    uint8_t lossPct, calState, calPct;
+    int16_t heading;
+    if (espnowLinkGetTelemetry(rssi, lossPct, heading, calState, calPct)) {
+        bleUartNotifyTelemetry(rssi, heading, calState, calPct);
+        Serial.printf("Telemetry: boat rssi %d dBm, loss %u%%, heading %d, cal %u/%u%%\n",
+                      rssi, lossPct, heading, calState, calPct);
+    }
+
+    // Settings/calibration commands from the phone (one-shot, sent immediately
+    // — ESP-NOW's unicast ACK/retry is enough, no heartbeat needed)
+    uint16_t minRunUs; bool headingHoldEnabled;
+    if (espnowLinkPaired() && bleUartGetSettings(minRunUs, headingHoldEnabled)) {
+        espnowLinkSendSettings(minRunUs, headingHoldEnabled);
+    }
+    uint8_t calCmd;
+    if (espnowLinkPaired() && bleUartGetCalCommand(calCmd)) {
+        espnowLinkSendCalCommand(calCmd);
     }
 }

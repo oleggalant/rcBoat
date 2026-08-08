@@ -28,3 +28,31 @@
 // Neutralize the boat if the phone stops writing for this long. The web page
 // heartbeats every 250 ms, so this only trips on a hung/backgrounded tab.
 #define BLE_WATCHDOG_MS  1000
+
+// ── Boat: compass (GY-271 QMC5883L) ─────────────────────────────────────────
+// Free on ESP32-C3-DevKitM-1: motors use GPIO1/5, flash reserves 11-17, USB
+// uses 18/19.
+#define COMPASS_SDA_PIN   8
+#define COMPASS_SCL_PIN   9
+#define COMPASS_READ_MS   50    // I2C read/update rate
+
+// Heading-hold PID (yaw correction, output fraction of full yaw authority).
+// Conservative starting point — tune on the water.
+#define PID_KP               0.02f
+#define PID_KI               0.0f
+#define PID_KD               0.01f
+#define PID_MAX_CORRECTION   0.3f   // clamp: never out-muscle manual steering
+#define HEADING_YAW_DEADBAND 0.05f  // |yaw| below this counts as "centered"
+// Whether the compass's derived heading increases when the boat turns right
+// depends on how the module is physically mounted — can't be known until it's
+// bench-tested (twist the board by hand, watch the printed correction). Flip
+// to -1 if the correction reinforces drift instead of opposing it.
+#define PID_SIGN             1
+
+// Default settings (overridden by whatever's saved in boat Preferences)
+#define DEFAULT_MIN_RUN_US        1150  // throttle response floor (µs)
+#define DEFAULT_HEADING_HOLD_ON   0     // stays off until compass is calibrated
+
+// Telemetry cadence while a compass calibration is in progress (ms) — faster
+// than the normal TELEMETRY_MS so the phone's progress bar feels live.
+#define TELEMETRY_CAL_MS  300

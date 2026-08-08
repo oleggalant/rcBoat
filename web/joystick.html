@@ -39,6 +39,25 @@
   #trimVal{min-width:28px;text-align:center;font-size:13px;color:rgba(255,255,255,.65)}
   #expoWrap{display:flex;align-items:center;gap:6px;font-size:13px;color:rgba(255,255,255,.65)}
   input[type=range]{width:72px;accent-color:#e94560;cursor:pointer}
+
+  #settingsOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);
+                    align-items:center;justify-content:center;z-index:10;touch-action:auto}
+  #settingsOverlay.open{display:flex}
+  #settingsPanel{background:#16213e;border-radius:14px;padding:20px;width:min(340px,86vw);
+                  max-height:86vh;overflow-y:auto;color:#fff}
+  #settingsPanel h2{font-size:16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+  #settingsClose{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1;padding:2px 6px}
+  .setRow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 0;font-size:13px}
+  .setRow input[type=range]{width:110px}
+  .setRow input[type=checkbox]{width:18px;height:18px;accent-color:#e94560}
+  #headingWrap{display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:6px}
+  #headingVal{font-size:13px;color:rgba(255,255,255,.65)}
+  #calSection{margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,.12)}
+  #calInstructions{font-size:12px;line-height:1.5;color:rgba(255,255,255,.65);margin-bottom:10px}
+  #calProgress{height:8px;border-radius:4px;background:#0f3460;overflow:hidden;margin-bottom:10px}
+  #calProgressBar{height:100%;width:0%;background:#2ecc71;transition:width .3s}
+  #calStatus{font-size:12px;color:rgba(255,255,255,.65);margin-bottom:10px;min-height:16px}
+  #calBtns{display:flex;gap:8px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -61,7 +80,44 @@
   <button class="cbtn" id="holdBtn">HOLD</button>
   <div id="expoWrap">EXPO <input type="range" id="expoSlider" min="0" max="100" value="50"></div>
   <button class="cbtn" id="modeBtn">2-HAND</button>
+  <button class="cbtn" id="settingsBtn">&#9881;</button>
 </div>
+
+<div id="settingsOverlay">
+  <div id="settingsPanel">
+    <h2>Settings <button id="settingsClose">&times;</button></h2>
+
+    <div id="headingWrap">
+      <canvas id="headingCv" width="90" height="90"></canvas>
+      <span id="headingVal">no compass</span>
+    </div>
+
+    <div class="setRow">
+      <label for="hHoldChk">Heading Hold</label>
+      <input type="checkbox" id="hHoldChk">
+    </div>
+    <div class="setRow">
+      <label for="minPwmSlider">Min throttle PWM</label>
+      <input type="range" id="minPwmSlider" min="1000" max="1300" step="10" value="1150">
+      <span id="minPwmVal">1150</span>
+    </div>
+
+    <div id="calSection">
+      <div id="calInstructions">
+        Slowly rotate the boat through a full circle, ideally a figure-8, for
+        about 20 seconds, away from other metal or magnets. Then tap Save.
+      </div>
+      <div id="calProgress"><div id="calProgressBar"></div></div>
+      <div id="calStatus"></div>
+      <div id="calBtns">
+        <button class="cbtn" id="calStartBtn">Calibrate Compass</button>
+        <button class="cbtn" id="calSaveBtn" style="display:none">Save</button>
+        <button class="cbtn" id="calCancelBtn" style="display:none">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const canvas     = document.getElementById('c');
 const ctx        = canvas.getContext('2d');
@@ -77,6 +133,22 @@ const trimValEl  = document.getElementById('trimVal');
 const holdBtn    = document.getElementById('holdBtn');
 const expoSlider = document.getElementById('expoSlider');
 const modeBtn    = document.getElementById('modeBtn');
+
+const settingsBtn      = document.getElementById('settingsBtn');
+const settingsOverlay  = document.getElementById('settingsOverlay');
+const settingsClose    = document.getElementById('settingsClose');
+const headingCv        = document.getElementById('headingCv');
+const headingCtx       = headingCv.getContext('2d');
+const headingValEl     = document.getElementById('headingVal');
+const hHoldChk         = document.getElementById('hHoldChk');
+const minPwmSlider     = document.getElementById('minPwmSlider');
+const minPwmValEl      = document.getElementById('minPwmVal');
+const calInstructions  = document.getElementById('calInstructions');
+const calProgressBar   = document.getElementById('calProgressBar');
+const calStatusEl      = document.getElementById('calStatus');
+const calStartBtn      = document.getElementById('calStartBtn');
+const calSaveBtn       = document.getElementById('calSaveBtn');
+const calCancelBtn     = document.getElementById('calCancelBtn');
 
 const SZ  = Math.min(window.innerWidth, window.innerHeight) * 0.72;
 canvas.width  = SZ;
@@ -132,6 +204,81 @@ expoSlider.addEventListener('input', () => {
   send();
 });
 
+// ── Settings panel (compass heading-hold + throttle floor + calibration) ──
+// Mirrored to localStorage just so the panel shows sane values immediately on
+// open; the boat's own persisted settings remain authoritative.
+let headingHoldOn = localStorage.getItem('hHold') === '1';
+let minRunUs      = parseInt(localStorage.getItem('minPwm') ?? '1150');
+let calibrating   = false;
+
+hHoldChk.checked = headingHoldOn;
+minPwmSlider.value = minRunUs;
+minPwmValEl.textContent = minRunUs;
+
+settingsBtn.addEventListener('click', () => settingsOverlay.classList.add('open'));
+settingsClose.addEventListener('click', () => settingsOverlay.classList.remove('open'));
+settingsOverlay.addEventListener('click', (e) => {
+  if (e.target === settingsOverlay) settingsOverlay.classList.remove('open');
+});
+
+hHoldChk.addEventListener('change', () => {
+  headingHoldOn = hHoldChk.checked;
+  localStorage.setItem('hHold', headingHoldOn ? '1' : '0');
+  sendSettings();
+});
+minPwmSlider.addEventListener('input', () => {
+  minRunUs = parseInt(minPwmSlider.value);
+  minPwmValEl.textContent = minRunUs;
+  localStorage.setItem('minPwm', minRunUs);
+  sendSettings();
+});
+
+calStartBtn.addEventListener('click', () => {
+  calibrating = true;
+  calStartBtn.style.display = 'none';
+  calCancelBtn.style.display = '';
+  calStatusEl.textContent = 'Calibrating… rotate the boat now.';
+  calProgressBar.style.width = '0%';
+  sendCalCmd(1);   // CAL_START
+});
+calSaveBtn.addEventListener('click', () => {
+  sendCalCmd(2);   // CAL_SAVE
+  calStatusEl.textContent = 'Saving…';
+});
+calCancelBtn.addEventListener('click', () => {
+  sendCalCmd(3);   // CAL_CANCEL
+  calibrating = false;
+  calStartBtn.style.display = '';
+  calSaveBtn.style.display = 'none';
+  calCancelBtn.style.display = 'none';
+  calStatusEl.textContent = 'Cancelled.';
+  calProgressBar.style.width = '0%';
+});
+
+function drawHeading(deg) {
+  const S = headingCv.width, C = S / 2;
+  headingCtx.clearRect(0, 0, S, S);
+  headingCtx.beginPath();
+  headingCtx.arc(C, C, C - 4, 0, Math.PI * 2);
+  headingCtx.strokeStyle = '#0f3460';
+  headingCtx.lineWidth = 3;
+  headingCtx.stroke();
+  if (deg === undefined || deg === null || deg < 0) {
+    headingValEl.textContent = 'no compass — calibrate below';
+    return;
+  }
+  const rad = (deg - 90) * Math.PI / 180;   // 0deg points up
+  headingCtx.beginPath();
+  headingCtx.moveTo(C, C);
+  headingCtx.lineTo(C + Math.cos(rad) * (C - 10), C + Math.sin(rad) * (C - 10));
+  headingCtx.strokeStyle = '#e94560';
+  headingCtx.lineWidth = 4;
+  headingCtx.lineCap = 'round';
+  headingCtx.stroke();
+  headingValEl.textContent = Math.round(deg) + '°';
+}
+drawHeading(-1);
+
 // ── Control mode toggle ───────────────────────────────────────────────────
 function applyMode() {
   canvas.style.display   = twoHand ? 'none' : 'block';
@@ -166,11 +313,15 @@ function updateRssi(rssi) {
 }
 
 // ── Web Bluetooth (Nordic UART Service on "rcBoatTx") ─────────────────────
-const NUS_SVC = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-const NUS_RX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
-const NUS_TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_SVC      = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_RX       = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_TX       = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+const SETTINGS_RX  = '6e400004-b5a3-f393-e0a9-e50e24dcca9e';
+const CAL_CMD_RX   = '6e400005-b5a3-f393-e0a9-e50e24dcca9e';
 
 let device = null, rxChar = null, pending = null, writing = false;
+let settingsChar = null, calChar = null;
+let settingsPending = null, settingsWriting = false;
 
 btBtn.addEventListener('click', async () => {   // requestDevice needs a user gesture
   if (!navigator.bluetooth) {
@@ -194,25 +345,33 @@ async function setupGatt() {
   const server = await device.gatt.connect();
   const svc    = await server.getPrimaryService(NUS_SVC);
   rxChar       = await svc.getCharacteristic(NUS_RX);
+  settingsChar = await svc.getCharacteristic(SETTINGS_RX);
+  calChar      = await svc.getCharacteristic(CAL_CMD_RX);
   const txChar = await svc.getCharacteristic(NUS_TX);
   await txChar.startNotifications();
   txChar.addEventListener('characteristicvaluechanged', (e) => {
     try {
       const d = JSON.parse(new TextDecoder().decode(e.target.value));
       if (d.rssi !== undefined) updateRssi(d.rssi);
+      if (d.heading !== undefined) drawHeading(d.heading);
+      if (d.cal !== undefined) handleCalTelemetry(d.cal, d.calPct ?? 0);
     } catch {}
   });
   dot.className = 'ok';
   msg.textContent = 'Connected';
   btBtn.disabled = true;
   send();
+  sendSettings();   // push the panel's current values to the (possibly new) boat
 }
 
 function onDisconnected() {
   dot.className = '';
   rxChar = null;
+  settingsChar = null;
+  calChar = null;
   btBtn.disabled = false;
   updateRssi(0);
+  drawHeading(-1);
   msg.textContent = 'Reconnecting…';
   setTimeout(reconnect, 1000);
 }
@@ -241,6 +400,49 @@ async function pump() {   // one write in flight, coalesce the rest (~conn inter
 
 // Heartbeat: keep the transmitter's BLE watchdog fed while the stick is steady
 setInterval(() => { if (rxChar) send(); }, 250);
+
+function sendSettings() {
+  if (!settingsChar) return;
+  const v = new DataView(new ArrayBuffer(3));
+  v.setUint16(0, minRunUs, true);
+  v.setUint8(2, headingHoldOn ? 1 : 0);
+  settingsPending = v.buffer;
+  pumpSettings();
+}
+async function pumpSettings() {   // same single-in-flight pattern as the joystick
+  if (settingsWriting || !settingsPending || !settingsChar) return;
+  settingsWriting = true;
+  const buf = settingsPending;
+  settingsPending = null;
+  try { await settingsChar.writeValue(buf); } catch {}
+  settingsWriting = false;
+  if (settingsPending) pumpSettings();
+}
+
+function sendCalCmd(cmd) {
+  if (!calChar) return;
+  calChar.writeValue(new Uint8Array([cmd])).catch(() => {});
+}
+
+// Drives the calibration section from boat telemetry (cal: 0=idle,1=calibrating,2=saved)
+function handleCalTelemetry(calState, calPct) {
+  if (calState === 1) {
+    calibrating = true;
+    calStartBtn.style.display = 'none';
+    calCancelBtn.style.display = '';
+    calProgressBar.style.width = calPct + '%';
+    calStatusEl.textContent = `Calibrating… ${calPct}% coverage`;
+    calSaveBtn.style.display = calPct >= 50 ? '' : 'none';
+  } else if (calState === 2) {
+    calibrating = false;
+    calStartBtn.style.display = '';
+    calSaveBtn.style.display = 'none';
+    calCancelBtn.style.display = 'none';
+    calProgressBar.style.width = '100%';
+    calStatusEl.textContent = 'Saved!';
+    setTimeout(() => { calProgressBar.style.width = '0%'; calStatusEl.textContent = ''; }, 3000);
+  }
+}
 
 // ── Drawing ───────────────────────────────────────────────────────────────
 function drawAll() { twoHand ? (drawThr(), drawTrn()) : drawJoy(); }

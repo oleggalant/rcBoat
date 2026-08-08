@@ -17,6 +17,7 @@ Phone (Chrome, Web Bluetooth joystick) → BLE → transmitter ESP32-C3
 - 2x ESP32-C3-DevKitM-1 boards (one for the boat, one for the handheld
   transmitter) — the transmitter board should have an external antenna
 - 2x brushless motors + ESCs, propellers
+- A GY-271 (QMC5883L) compass module for the boat, for heading-hold
 - A phone with Chrome (Android or desktop) for the controller page
 - Small Li-ion/LiPo or USB power bank for the transmitter; a battery + BEC
   (or separate 5V supply) for the boat electronics
@@ -60,6 +61,41 @@ Two control layouts, switchable in the page (saved per-device):
 - **2-hand**: landscape, turn slider on the left, thrust slider on the right
   — good for letting one kid drive while sharing the phone, or for small
   hands that find a diagonal joystick harder to hold steady
+
+### Compass wiring (GY-271 QMC5883L, boat only)
+
+| GY-271 pin | ESP32-C3 pin |
+|---|---|
+| VCC | 3V3 |
+| GND | GND |
+| SCL | GPIO9 |
+| SDA | GPIO8 |
+| DRDY / INT | not connected |
+
+Mount it as far as practical from the ESCs and motor wiring — motor current
+is the most likely source of magnetic interference — and roughly level.
+Some GY-271 boards are actually HMC5883L clones; the boat prints the
+detected chip ID at boot (should read `0xFF`) so a wrong-chip module is
+obvious right away instead of silently giving garbage headings.
+
+### Settings panel (⚙ button on the joystick page)
+
+- **Heading Hold** — while driving forward with the turn stick centered, the
+  boat locks onto its current heading and corrects for drift (prop torque,
+  wind, current) — like an RC "heading-hold gyro". Turning always overrides
+  it immediately; releasing the stick locks onto the new heading. Requires
+  the compass to be calibrated first.
+- **Min throttle PWM** — a response floor: any nonzero throttle jumps
+  straight to this PWM instead of crawling up from 1000 µs, where the prop
+  may not even be spinning yet.
+- **Calibrate Compass** — rotate the boat through a full circle (a figure-8
+  works well) for about 20 seconds, away from other metal/magnets, then tap
+  Save. The progress bar fills as it sees more of the circle. Calibration is
+  stored on the boat and survives reboots.
+
+If heading-hold ever fights a turn instead of helping it, the compass's
+mounting orientation has the sign backwards for this particular module —
+flip `PID_SIGN` in `include/config.h` from `1` to `-1` and reflash the boat.
 
 ### Radio settings (`include/config.h`)
 
