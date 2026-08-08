@@ -1,8 +1,7 @@
-# rcBoat — a 3D-printed RC boat, built with your kids
+# rcBoat — a 3D-printed RC catamaran, build it yourself
 
 A weekend (or two) DIY project: a long-range radio-controlled boat with a
-3D-printed hull and **four empty cola bottles** as floats. Aimed at building
-it together with your children — one weekend on the hull and floats, one
+3D-printed hull and **four empty cola bottles** as floats. build it yourself! it only takes one weekend on the hull and floats, one
 weekend on the electronics and the first drive.
 
 ```
@@ -58,9 +57,9 @@ open on the water.
 
 Two control layouts, switchable in the page (saved per-device):
 - **1-stick**: single joystick, horizontal = turn, vertical = thrust
+- good for fishing if phone held in one hand,fishing rod in other
 - **2-hand**: landscape, turn slider on the left, thrust slider on the right
-  — good for letting one kid drive while sharing the phone, or for small
-  hands that find a diagonal joystick harder to hold steady
+  — good for racing/casual sailing and water watching(needs an external camera)
 
 ### Compass wiring (GY-271 QMC5883L, boat only)
 
@@ -105,18 +104,18 @@ flip `PID_SIGN` in `include/config.h` from `1` to `-1` and reflash the boat.
 
 ### Failsafes
 
-- Boat cuts motors to idle if no control packet for 500 ms (`WATCHDOG_MS`).
-- Transmitter sends neutral if the phone disconnects or stops writing for
+- Boat cuts motors to idle if no control packet is recived for 500 ms (`WATCHDOG_MS`).
+- Transmitter sends neutral signals if the phone disconnects or stops writing for
   1 s (`BLE_WATCHDOG_MS`) — the page heartbeats every 250 ms.
 - Transmitter re-enters discovery if the boat is silent for 5 s.
 - ESCs are held at 1000 µs for 3 s at boot (arming), same as the original.
 
-## Safety notes (worth a read before the kids press go)
+## Safety notes (worth a read )
 
 - First runs: **props off**. Verify pairing, joystick response, and that
   killing the transmitter or closing the phone tab actually stops the boat.
 - Keep hands clear of props once they're on — arm the ESCs, then don't touch.
 - Test failsafes deliberately: turn off the transmitter, close the browser
   tab, walk out of BLE range — in every case the boat should stop.
-- Water testing: adult supervision, calm/shallow water first, and a plan for
+- Water testing: !carefully! calm/shallow water first, and a plan for
   retrieving the boat if the link ever does drop.
