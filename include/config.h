@@ -30,10 +30,12 @@
 #define BLE_WATCHDOG_MS  1000
 
 // ── Boat: compass (GY-271 QMC5883L) ─────────────────────────────────────────
-// Free on ESP32-C3-DevKitM-1: motors use GPIO1/5, flash reserves 11-17, USB
-// uses 18/19.
-#define COMPASS_SDA_PIN   8
-#define COMPASS_SCL_PIN   9
+// GPIO8 avoided: it's hardwired to the ESP32-C3-DevKitM-1's onboard
+// addressable RGB LED, which can interfere with I2C on that pin. GPIO9
+// avoided too: it's a boot-strapping pin. GPIO6/7 are plain, unencumbered
+// GPIOs — free alongside motors on GPIO1/5, flash on 11-17, USB on 18/19.
+#define COMPASS_SDA_PIN   6
+#define COMPASS_SCL_PIN   7
 #define COMPASS_READ_MS   50    // I2C read/update rate
 
 // Heading-hold PID (yaw correction, output fraction of full yaw authority).

@@ -67,15 +67,26 @@ Two control layouts, switchable in the page (saved per-device):
 |---|---|
 | VCC | 3V3 |
 | GND | GND |
-| SCL | GPIO9 |
-| SDA | GPIO8 |
+| SCL | GPIO7 |
+| SDA | GPIO6 |
 | DRDY / INT | not connected |
+
+GPIO8/9 are deliberately avoided: GPIO8 is hardwired to the DevKitM-1's
+onboard addressable RGB LED (which can interfere with I2C on that pin), and
+GPIO9 is a boot-strapping pin — GPIO6/7 are plain, unencumbered GPIOs.
 
 Mount it as far as practical from the ESCs and motor wiring — motor current
 is the most likely source of magnetic interference — and roughly level.
 Some GY-271 boards are actually HMC5883L clones; the boat prints the
 detected chip ID at boot (should read `0xFF`) so a wrong-chip module is
 obvious right away instead of silently giving garbage headings.
+
+**Wiring debug**: `web/trace.html` (also linked as "Trace" from the main
+controller page) connects over the same BLE link and shows a live readout —
+RSSI, heading, calibration state, and raw compass X/Y — plus a scrolling log
+of every telemetry update, with no serial cable needed. It also reports
+which I2C address (if any) last ACKed, so you can tell "no chip on the bus"
+apart from "wrong chip" apart from "chip present but stuck."
 
 ### Settings panel (⚙ button on the joystick page)
 
