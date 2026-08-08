@@ -36,6 +36,7 @@
         font-size:13px;cursor:pointer;touch-action:manipulation;transition:background .2s}
   .cbtn:active,.cbtn.on{background:#e94560}
   .cbtn:disabled{opacity:.45;cursor:default}
+  #trimGroup{display:inline-flex;align-items:center;gap:14px}
   #trimVal{min-width:28px;text-align:center;font-size:13px;color:rgba(255,255,255,.65)}
   #expoWrap{display:flex;align-items:center;gap:6px;font-size:13px;color:rgba(255,255,255,.65)}
   input[type=range]{width:72px;accent-color:#e94560;cursor:pointer}
@@ -74,9 +75,11 @@
   <canvas id="thr"></canvas>
 </div>
 <div id="controls">
-  <button class="cbtn" id="trimL">&#9664;</button>
-  <span id="trimVal">0</span>
-  <button class="cbtn" id="trimR">&#9654;</button>
+  <span id="trimGroup">
+    <button class="cbtn" id="trimL">&#9664;</button>
+    <span id="trimVal">0</span>
+    <button class="cbtn" id="trimR">&#9654;</button>
+  </span>
   <button class="cbtn" id="holdBtn">HOLD</button>
   <div id="expoWrap">EXPO <input type="range" id="expoSlider" min="0" max="100" value="50"></div>
   <button class="cbtn" id="modeBtn">2-HAND</button>
@@ -92,6 +95,10 @@
       <span id="headingVal">no compass</span>
     </div>
 
+    <div class="setRow">
+      <label for="showTrimChk">Show Trim</label>
+      <input type="checkbox" id="showTrimChk">
+    </div>
     <div class="setRow">
       <label for="hHoldChk">Heading Hold</label>
       <input type="checkbox" id="hHoldChk">
@@ -140,6 +147,8 @@ const settingsClose    = document.getElementById('settingsClose');
 const headingCv        = document.getElementById('headingCv');
 const headingCtx       = headingCv.getContext('2d');
 const headingValEl     = document.getElementById('headingVal');
+const showTrimChk      = document.getElementById('showTrimChk');
+const trimGroup        = document.getElementById('trimGroup');
 const hHoldChk         = document.getElementById('hHoldChk');
 const minPwmSlider     = document.getElementById('minPwmSlider');
 const minPwmValEl      = document.getElementById('minPwmVal');
@@ -179,6 +188,25 @@ let twoHand      = localStorage.getItem('mode') === '2';
 trimValEl.textContent = (trimSteps > 0 ? '+' : '') + trimSteps;
 holdBtn.classList.toggle('on', throttleHold);
 expoSlider.value = Math.round(expoAmt * 100);
+
+// Trim adds a static yaw offset — useful without a compass, but it feeds
+// into the same value heading-hold's deadband checks, so a nonzero trim can
+// silently stop heading-hold from ever engaging. Hiding it also zeroes it.
+let showTrim = localStorage.getItem('showTrim') !== '0';
+showTrimChk.checked = showTrim;
+trimGroup.style.display = showTrim ? '' : 'none';
+
+showTrimChk.addEventListener('change', () => {
+  showTrim = showTrimChk.checked;
+  localStorage.setItem('showTrim', showTrim ? '1' : '0');
+  trimGroup.style.display = showTrim ? '' : 'none';
+  if (!showTrim && trimSteps !== 0) {
+    trimSteps = 0;
+    trimValEl.textContent = '0';
+    localStorage.setItem('trim', 0);
+    send();
+  }
+});
 
 document.getElementById('trimL').addEventListener('click', () => {
   trimSteps = Math.max(-10, trimSteps - 1);
