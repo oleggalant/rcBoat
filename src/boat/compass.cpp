@@ -15,6 +15,18 @@ static bool g_calibrated = false;
 static uint32_t g_lastReadMs = 0;
 static float g_headingSmoothed = -1;   // -1 = no reading yet
 static int16_t g_rawX = 0, g_rawY = 0;
+static uint8_t g_i2cAddr = 0;   // 0 = nothing found, else the address that ACKed
+
+// Cheap bus presence check: tries the QMC5883L address first, then the
+// HMC5883L-clone address, so a live trace can tell "no chip on the bus"
+// apart from "it's the wrong chip" without a fresh boot/serial capture.
+static uint8_t checkI2cAddress() {
+    Wire.beginTransmission(0x0D);
+    if (Wire.endTransmission() == 0) return 0x0D;
+    Wire.beginTransmission(0x1E);
+    if (Wire.endTransmission() == 0) return 0x1E;
+    return 0;
+}
 
 static bool g_calActive = false;
 static int g_calMinX, g_calMaxX, g_calMinY, g_calMaxY;
@@ -85,6 +97,8 @@ void compassUpdate() {
     if (now - g_lastReadMs < COMPASS_READ_MS) return;
     g_lastReadMs = now;
 
+    g_i2cAddr = checkI2cAddress();
+
     g_compass.read();
     int x = g_compass.getX(), y = g_compass.getY();
     g_rawX = (int16_t)x;
@@ -125,6 +139,8 @@ void compassRawXY(int16_t& x, int16_t& y) {
     x = g_rawX;
     y = g_rawY;
 }
+
+uint8_t compassI2cAddr() { return g_i2cAddr; }
 
 void compassCalStart() {
     g_calActive = true;

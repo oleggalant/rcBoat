@@ -129,13 +129,14 @@ bool bleUartGetCalCommand(uint8_t& cmd) {
 }
 
 void bleUartNotifyTelemetry(int8_t rssi, int16_t headingDeg, uint8_t calState,
-                             uint8_t calCoveragePct, int16_t rawX, int16_t rawY) {
+                             uint8_t calCoveragePct, int16_t rawX, int16_t rawY,
+                             uint8_t i2cAddr) {
     if (!g_connected || !g_txChar) return;
-    char buf[96];
+    char buf[112];
     int n = snprintf(buf, sizeof(buf),
-                      "{\"rssi\":%d,\"heading\":%d,\"cal\":%u,\"calPct\":%u,\"rawX\":%d,\"rawY\":%d}",
+                      "{\"rssi\":%d,\"heading\":%d,\"cal\":%u,\"calPct\":%u,\"rawX\":%d,\"rawY\":%d,\"i2c\":%u}",
                       (int)rssi, (int)headingDeg, (unsigned)calState, (unsigned)calCoveragePct,
-                      (int)rawX, (int)rawY);
+                      (int)rawX, (int)rawY, (unsigned)i2cAddr);
     g_txChar->setValue((uint8_t*)buf, n);
     g_txChar->notify();
 }

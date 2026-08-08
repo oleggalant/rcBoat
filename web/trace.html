@@ -30,6 +30,8 @@
   .stat{background:#16213e;border-radius:10px;padding:10px;text-align:center}
   .stat .lbl{font-size:11px;color:rgba(255,255,255,.55);margin-bottom:4px}
   .stat .val{font-size:18px;font-family:monospace}
+  .stat .val.ok{color:#2ecc71}
+  .stat .val.bad{color:#e74c3c}
   #log{width:100%;max-width:640px;flex:1;background:#0f172a;border-radius:10px;
        padding:10px;overflow-y:auto;font-family:monospace;font-size:12px;
        line-height:1.5;white-space:pre-wrap;max-height:50vh}
@@ -47,6 +49,7 @@
 </div>
 
 <div id="readout">
+  <div class="stat"><div class="lbl">I2C bus</div><div class="val" id="vI2c">—</div></div>
   <div class="stat"><div class="lbl">RSSI</div><div class="val" id="vRssi">—</div></div>
   <div class="stat"><div class="lbl">Heading</div><div class="val" id="vHeading">—</div></div>
   <div class="stat"><div class="lbl">Cal state</div><div class="val" id="vCal">—</div></div>
@@ -66,6 +69,7 @@ const btBtn    = document.getElementById('btBtn');
 const clearBtn = document.getElementById('clearBtn');
 const logEl    = document.getElementById('log');
 
+const vI2c     = document.getElementById('vI2c');
 const vRssi    = document.getElementById('vRssi');
 const vHeading = document.getElementById('vHeading');
 const vCal     = document.getElementById('vCal');
@@ -136,6 +140,12 @@ function applyTelemetry(d) {
   updateTimes = updateTimes.filter(t => now - t < 60000);
   vRate.textContent = updateTimes.length;
 
+  if (d.i2c !== undefined) {
+    if (d.i2c === 13) { vI2c.textContent = 'QMC5883L (0x0D)'; vI2c.className = 'val ok'; }
+    else if (d.i2c === 30) { vI2c.textContent = 'HMC5883L addr (0x1E)'; vI2c.className = 'val bad'; }
+    else if (d.i2c === 0) { vI2c.textContent = 'not found'; vI2c.className = 'val bad'; }
+    else { vI2c.textContent = 'addr 0x' + d.i2c.toString(16); vI2c.className = 'val bad'; }
+  }
   if (d.rssi !== undefined) vRssi.textContent = d.rssi + ' dBm';
   if (d.heading !== undefined) vHeading.textContent = d.heading < 0 ? 'n/a' : d.heading + '°';
   if (d.cal !== undefined) vCal.textContent = CAL_STATES[d.cal] ?? d.cal;

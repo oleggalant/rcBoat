@@ -18,6 +18,13 @@ int  compassHeadingDeg();     // 0-359, or -1 if invalid
 // these never change, the I2C bus isn't actually being read.
 void compassRawXY(int16_t& x, int16_t& y);
 
+// Live I2C bus presence check (re-probed each compassUpdate()): returns the
+// address that ACKed (0x0D = QMC5883L, 0x1E = HMC5883L-clone address), or 0
+// if nothing responds. Lets a remote trace tool distinguish "no chip on the
+// bus" from "wrong chip" from "chip present but values not moving", without
+// needing a fresh boot/serial capture.
+uint8_t compassI2cAddr();
+
 void compassCalStart();
 bool compassCalStop(bool save);   // true if this call resulted in a fresh save
 bool compassCalActive();

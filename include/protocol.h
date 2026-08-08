@@ -7,7 +7,7 @@
 // reach our receive callback — ESP-NOW itself already CRCs at the MAC layer.
 
 #define PROTO_MAGIC   0xB7
-#define PROTO_VERSION 3
+#define PROTO_VERSION 4
 
 enum : uint8_t {
     PKT_CONTROL      = 1,   // TX -> boat: joystick values
@@ -53,8 +53,9 @@ typedef struct __attribute__((packed)) {
     uint8_t calCoveragePct; // calibration progress, 0-100 (0 outside calibration)
     int16_t rawX;           // raw/calibration-adjusted magnetometer X, for tracing
     int16_t rawY;           // same, Y — both stuck at a fixed value means I2C is dead
+    uint8_t i2cAddr;        // last I2C probe result: 0x0D=QMC5883L, 0x1E=HMC5883L-addr, 0=none
     uint8_t crc;
-} TelemetryPacket;          // 15 bytes
+} TelemetryPacket;          // 16 bytes
 
 typedef struct __attribute__((packed)) {
     PacketHeader hdr;       // type = PKT_DISCOVER or PKT_DISCOVER_ACK

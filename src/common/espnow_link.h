@@ -27,7 +27,7 @@ bool espnowLinkSendCalCommand(uint8_t cmd);   // CAL_START / CAL_SAVE / CAL_CANC
 // True if a telemetry packet arrived since the last call; outputs latest values.
 bool espnowLinkGetTelemetry(int8_t& rssi, uint8_t& lossPct, int16_t& headingDeg,
                              uint8_t& calState, uint8_t& calCoveragePct,
-                             int16_t& rawX, int16_t& rawY);
+                             int16_t& rawX, int16_t& rawY, uint8_t& i2cAddr);
 
 // ── Boat role ────────────────────────────────────────────────────────────────
 // True if a control packet arrived since the last call; outputs latest values.
@@ -35,7 +35,7 @@ bool espnowLinkGetControl(int16_t& x, int16_t& y);
 uint32_t espnowLinkLastControlMs();
 bool espnowLinkSendTelemetry(int8_t rssi, uint8_t lossPct, int16_t headingDeg,
                               uint8_t calState, uint8_t calCoveragePct,
-                              int16_t rawX, int16_t rawY);
+                              int16_t rawX, int16_t rawY, uint8_t i2cAddr);
 int8_t espnowLinkLastRxRssi();          // dBm of last frame from the peer
 uint8_t espnowLinkTakeLossPct();        // control loss % since previous call
 // True if a settings/calibration command arrived since the last call.

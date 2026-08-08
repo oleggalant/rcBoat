@@ -119,6 +119,6 @@ void loop() {
         compassRawXY(rawX, rawY);
         espnowLinkSendTelemetry(espnowLinkLastRxRssi(), espnowLinkTakeLossPct(),
                                  (int16_t)compassHeadingDeg(), calState,
-                                 compassCalCoveragePct(), rawX, rawY);
+                                 compassCalCoveragePct(), rawX, rawY, compassI2cAddr());
     }
 }
