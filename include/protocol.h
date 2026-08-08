@@ -53,7 +53,8 @@ typedef struct __attribute__((packed)) {
     uint8_t calCoveragePct; // calibration progress, 0-100 (0 outside calibration)
     int16_t rawX;           // raw/calibration-adjusted magnetometer X, for tracing
     int16_t rawY;           // same, Y — both stuck at a fixed value means I2C is dead
-    uint8_t i2cAddr;        // last I2C probe result: 0x0D=QMC5883L, 0x1E=HMC5883L-addr, 0=none
+    uint8_t i2cAddr;        // last I2C probe: 0x2C=QMC5883P (supported), 0x0D=QMC5883L,
+                            // 0x1E=HMC5883L-addr (both unsupported by this firmware), 0=none
     uint8_t crc;
 } TelemetryPacket;          // 16 bytes
 

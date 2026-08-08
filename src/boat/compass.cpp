@@ -2,12 +2,15 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <Preferences.h>
-#include <QMC5883LCompass.h>
+#include <Adafruit_QMC5883P.h>
 #include "config.h"
 
-static QMC5883LCompass g_compass;
+static Adafruit_QMC5883P g_compass;
 static Preferences g_prefs;
 
+// Hard-iron calibration (X/Y only — the boat stays level, so Z/tilt
+// compensation is skipped). Applied here in software on every reading,
+// since Adafruit_QMC5883P has no built-in offset/scale hooks.
 static float g_offX = 0, g_offY = 0;
 static float g_scaleX = 1, g_scaleY = 1;
 static bool g_calibrated = false;
@@ -17,24 +20,22 @@ static float g_headingSmoothed = -1;   // -1 = no reading yet
 static int16_t g_rawX = 0, g_rawY = 0;
 static uint8_t g_i2cAddr = 0;   // 0 = nothing found, else the address that ACKed
 
-// Cheap bus presence check: tries the QMC5883L address first, then the
-// HMC5883L-clone address, so a live trace can tell "no chip on the bus"
-// apart from "it's the wrong chip" without a fresh boot/serial capture.
+static bool g_calActive = false;
+static int g_calMinX, g_calMaxX, g_calMinY, g_calMaxY;
+static bool g_calBinVisited[36];
+
+// Many boards sold as "GY-271 QMC5883L" now actually ship the newer
+// QMC5883P chip instead, at a different I2C address (0x2C vs 0x0D) — check
+// that one first, then the two older-chip addresses so a live trace can
+// still tell "wrong/old chip" apart from "nothing on the bus".
 static uint8_t checkI2cAddress() {
+    Wire.beginTransmission(0x2C);
+    if (Wire.endTransmission() == 0) return 0x2C;
     Wire.beginTransmission(0x0D);
     if (Wire.endTransmission() == 0) return 0x0D;
     Wire.beginTransmission(0x1E);
     if (Wire.endTransmission() == 0) return 0x1E;
     return 0;
-}
-
-static bool g_calActive = false;
-static int g_calMinX, g_calMaxX, g_calMinY, g_calMaxY;
-static bool g_calBinVisited[36];
-
-static void applyCalibration() {
-    g_compass.setCalibrationOffsets(g_offX, g_offY, 0);
-    g_compass.setCalibrationScales(g_scaleX, g_scaleY, 1);
 }
 
 static void loadFromPrefs() {
@@ -57,35 +58,24 @@ static void saveToPrefs() {
     g_prefs.end();
 }
 
-// QMC5883L lives at I2C address 0x0D and its Chip ID register (also 0x0D)
-// should read back 0xFF. Some GY-271 boards actually carry an HMC5883L
-// (address 0x1E) instead — detect that case and warn loudly rather than
-// silently reporting garbage headings.
-static void probeChipId() {
-    Wire.beginTransmission(0x0D);
-    Wire.write(0x0D);
-    if (Wire.endTransmission(false) == 0 && Wire.requestFrom((int)0x0D, 1) == 1) {
-        uint8_t id = Wire.read();
-        Serial.printf("Compass: QMC5883L found, chip ID 0x%02X (expect 0xFF)\n", id);
-        return;
-    }
-    Wire.beginTransmission(0x1E);
-    if (Wire.endTransmission() == 0) {
-        Serial.println("Compass: WARNING - found a device at 0x1E (HMC5883L "
-                        "address). This GY-271 may be an HMC5883L clone, not "
-                        "QMC5883L - headings will be wrong with this firmware.");
-        return;
-    }
-    Serial.println("Compass: WARNING - no device found on I2C bus, check "
-                    "wiring (SDA/SCL/VCC/GND).");
-}
-
 void compassInit() {
     Wire.begin(COMPASS_SDA_PIN, COMPASS_SCL_PIN);
-    probeChipId();
-    g_compass.init();
+    g_i2cAddr = checkI2cAddress();
+
+    if (g_compass.begin(0x2C, &Wire)) {
+        g_compass.setMode(QMC5883P_MODE_CONTINUOUS);
+        g_compass.setODR(QMC5883P_ODR_100HZ);
+        g_compass.setRange(QMC5883P_RANGE_8G);
+        g_compass.setOSR(QMC5883P_OSR_8);
+        g_compass.setDSR(QMC5883P_DSR_1);
+        g_compass.setSetResetMode(QMC5883P_SETRESET_ON);
+        Serial.println("Compass: QMC5883P initialized");
+    } else {
+        Serial.printf("Compass: WARNING - QMC5883P begin() failed (I2C probe found "
+                       "address 0x%02X, expected 0x2C) - check wiring/chip type\n", g_i2cAddr);
+    }
+
     loadFromPrefs();
-    applyCalibration();
     Serial.println(g_calibrated ? "Compass: loaded saved calibration"
                                  : "Compass: not calibrated yet");
 }
@@ -99,22 +89,27 @@ void compassUpdate() {
 
     g_i2cAddr = checkI2cAddress();
 
-    g_compass.read();
-    int x = g_compass.getX(), y = g_compass.getY();
-    g_rawX = (int16_t)x;
-    g_rawY = (int16_t)y;
+    int16_t rawX, rawY, rawZ;
+    if (g_compass.getRawMagnetic(&rawX, &rawY, &rawZ)) {
+        g_rawX = rawX;
+        g_rawY = rawY;
+    }
+    // else: leave g_rawX/g_rawY at their last value — a stuck trace reading
+    // is exactly the signal a wiring/chip problem should produce.
 
     if (g_calActive) {
-        g_calMinX = min(g_calMinX, x); g_calMaxX = max(g_calMaxX, x);
-        g_calMinY = min(g_calMinY, y); g_calMaxY = max(g_calMaxY, y);
-        float rawHeading = atan2f((float)y, (float)x) * 180.0f / PI;
+        g_calMinX = min(g_calMinX, (int)g_rawX); g_calMaxX = max(g_calMaxX, (int)g_rawX);
+        g_calMinY = min(g_calMinY, (int)g_rawY); g_calMaxY = max(g_calMaxY, (int)g_rawY);
+        float rawHeading = atan2f((float)g_rawY, (float)g_rawX) * 180.0f / PI;
         if (rawHeading < 0) rawHeading += 360;
         g_calBinVisited[headingBin(rawHeading)] = true;
     }
 
     if (!g_calibrated) return;   // no meaningful heading before calibration
 
-    float heading = atan2f((float)y, (float)x) * 180.0f / PI;
+    float x = (g_rawX - g_offX) * g_scaleX;
+    float y = (g_rawY - g_offY) * g_scaleY;
+    float heading = atan2f(y, x) * 180.0f / PI;
     if (heading < 0) heading += 360;
 
     if (g_headingSmoothed < 0) {
@@ -147,9 +142,6 @@ void compassCalStart() {
     g_calMinX = g_calMinY = 32767;
     g_calMaxX = g_calMaxY = -32768;
     memset(g_calBinVisited, 0, sizeof(g_calBinVisited));
-    // Sample truly raw values, independent of any previously-saved calibration.
-    g_compass.setCalibrationOffsets(0, 0, 0);
-    g_compass.setCalibrationScales(1, 1, 1);
     Serial.println("Compass: calibration started");
 }
 
@@ -172,7 +164,6 @@ bool compassCalStop(bool save) {
         Serial.println(save ? "Compass: calibration data insufficient, not saved"
                              : "Compass: calibration cancelled");
     }
-    applyCalibration();   // restore the (old or newly computed) real calibration
     return saved;
 }
 

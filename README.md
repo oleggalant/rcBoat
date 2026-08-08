@@ -16,7 +16,7 @@ Phone (Chrome, Web Bluetooth joystick) → BLE → transmitter ESP32-C3
 - 2x ESP32-C3-DevKitM-1 boards (one for the boat, one for the handheld
   transmitter) — the transmitter board should have an external antenna
 - 2x brushless motors + ESCs, propellers
-- A GY-271 (QMC5883L) compass module for the boat, for heading-hold
+- A GY-271 compass module for the boat, for heading-hold (see chip note below)
 - A phone with Chrome (Android or desktop) for the controller page
 - Small Li-ion/LiPo or USB power bank for the transmitter; a battery + BEC
   (or separate 5V supply) for the boat electronics
@@ -61,7 +61,7 @@ Two control layouts, switchable in the page (saved per-device):
 - **2-hand**: landscape, turn slider on the left, thrust slider on the right
   — good for racing/casual sailing and water watching(needs an external camera)
 
-### Compass wiring (GY-271 QMC5883L, boat only)
+### Compass wiring (GY-271, boat only)
 
 | GY-271 pin | ESP32-C3 pin |
 |---|---|
@@ -77,16 +77,22 @@ GPIO9 is a boot-strapping pin — GPIO6/7 are plain, unencumbered GPIOs.
 
 Mount it as far as practical from the ESCs and motor wiring — motor current
 is the most likely source of magnetic interference — and roughly level.
-Some GY-271 boards are actually HMC5883L clones; the boat prints the
-detected chip ID at boot (should read `0xFF`) so a wrong-chip module is
-obvious right away instead of silently giving garbage headings.
 
-**Wiring debug**: `web/trace.html` (also linked as "Trace" from the main
-controller page) connects over the same BLE link and shows a live readout —
-RSSI, heading, calibration state, and raw compass X/Y — plus a scrolling log
-of every telemetry update, with no serial cable needed. It also reports
-which I2C address (if any) last ACKed, so you can tell "no chip on the bus"
-apart from "wrong chip" apart from "chip present but stuck."
+**Chip note**: boards sold as "GY-271 QMC5883L" increasingly ship a newer,
+pin-similar chip called **QMC5883P** instead — same footprint, different I2C
+address (`0x2C` vs the older `0x0D`) and register map. This firmware targets
+QMC5883P (via the `Adafruit_QMC5883P` library). If your board turns out to
+have a genuine QMC5883L or an HMC5883L clone instead, flash
+`pio run -e compass_test -t upload` and open `pio device monitor` — it scans
+the whole I2C bus, fingerprints whichever of the three chips is present
+(chip-ID register match, not just an address guess), and streams live raw
+X/Y/Z once identified, all without the rest of the radio stack running.
+
+**Wiring debug on the water**: `web/trace.html` (also linked as "Trace" from
+the main controller page) connects over the same BLE link and shows a live
+readout — RSSI, heading, calibration state, raw compass X/Y, and which I2C
+address last ACKed — plus a scrolling log of every telemetry update, with no
+serial cable needed.
 
 ### Settings panel (⚙ button on the joystick page)
 

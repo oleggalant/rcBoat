@@ -141,8 +141,9 @@ function applyTelemetry(d) {
   vRate.textContent = updateTimes.length;
 
   if (d.i2c !== undefined) {
-    if (d.i2c === 13) { vI2c.textContent = 'QMC5883L (0x0D)'; vI2c.className = 'val ok'; }
-    else if (d.i2c === 30) { vI2c.textContent = 'HMC5883L addr (0x1E)'; vI2c.className = 'val bad'; }
+    if (d.i2c === 44) { vI2c.textContent = 'QMC5883P (0x2C)'; vI2c.className = 'val ok'; }
+    else if (d.i2c === 13) { vI2c.textContent = 'QMC5883L (0x0D) — unsupported'; vI2c.className = 'val bad'; }
+    else if (d.i2c === 30) { vI2c.textContent = 'HMC5883L addr (0x1E) — unsupported'; vI2c.className = 'val bad'; }
     else if (d.i2c === 0) { vI2c.textContent = 'not found'; vI2c.className = 'val bad'; }
     else { vI2c.textContent = 'addr 0x' + d.i2c.toString(16); vI2c.className = 'val bad'; }
   }

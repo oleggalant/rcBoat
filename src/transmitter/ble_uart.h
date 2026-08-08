@@ -6,8 +6,9 @@
 //   Settings (write):  3 bytes  — uint16 minRunUs (LE), uint8 headingHoldEnabled
 //   Cal cmd  (write):  1 byte   — CAL_START/CAL_SAVE/CAL_CANCEL (see protocol.h)
 //   NUS TX   (notify): JSON telemetry, e.g.
-//     {"rssi":-62,"heading":137,"cal":0,"calPct":0,"rawX":120,"rawY":-340,"i2c":13}
-//   i2c: 13 (0x0D) = QMC5883L found, 30 (0x1E) = HMC5883L-clone address found, 0 = nothing
+//     {"rssi":-62,"heading":137,"cal":0,"calPct":0,"rawX":120,"rawY":-340,"i2c":44}
+//   i2c: 44 (0x2C) = QMC5883P (supported), 13 (0x0D) = QMC5883L, 30 (0x1E) =
+//        HMC5883L-clone address (both unsupported by this firmware), 0 = nothing found
 // Settings/cal get their own characteristics rather than sharing NUS RX so a
 // one-shot write never has to share framing with the high-rate control path.
 void bleUartInit();
